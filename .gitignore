@@ -1,0 +1,8 @@
+node_modules/
+.env
+*.log
+.qa-vite.pid
+data/uploads/
+data/qa/
+__pycache__/
+.venv/

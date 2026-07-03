@@ -1,146 +1,104 @@
-# DAPA 공개자료 기반 RAG 질의응답 과제
+# DAPA 공개자료 기반 RAG 문서 검색·답변 시스템
 
-방위사업청 내부 문서나 실제 기관 양식을 외부로 반출하지 않고, dapa.go.kr 공개 페이지와 일반 공공기관 문서 형식을 참고해 RAG 적재용 샘플 문서, 청킹 결과, Supabase pgvector 스키마, Cohere rerank, OpenRouter 답변 생성 흐름을 구성한 과제 제출물입니다.
+방위사업청 내부 문서나 기관 고유 양식은 사용하지 않고, `dapa.go.kr` 공개 페이지와 일반 공공기관 문서 양식을 참고해 만든 10장 이내 샘플 공문서를 Supabase Vector DB에 적재한 뒤 문서 검색, 근거 재정렬, 답변 생성을 수행하는 RAG 과제 제출물입니다.
 
-## 1. 과제 요구사항 대응
+배포 서비스: https://ai-studying-man.github.io/rag_ax/
 
-| 요구사항 | 제출물 |
+## 구현 범위
+
+| 과제 항목 | 구현 내용 |
 | --- | --- |
-| 10장 이내 공문서 형식 문서 | `dapa-rag-assignment/docs/dapa_public_sample_official_document.md` |
-| DAPA 홈페이지 공개 링크 참고 | 조직도, 직원/담당업무, 공지사항, 민원업무 안내 URL을 문서와 청크 메타데이터에 반영 |
-| 청킹 기법 | 제목/절 보존 후 450~700자 recursive character chunking, 약 100자 overlap |
-| Vector DB | `dapa-rag-assignment/supabase/schema.sql`에 pgvector 테이블과 RPC 함수 작성 |
-| 테이블/함수명 충돌 방지 | 모든 DB 객체에 `dapa_rag_assignment_` prefix 사용 |
-| Chat Model | `scripts/answer_with_openrouter.mjs`에서 OpenRouter Chat Completions 사용 |
-| 저비용 모델 | 기본값 `google/gemini-2.5-flash`, `.env`의 `OPENROUTER_MODEL`로 교체 가능 |
-| Re-rank | `scripts/test_retrieval.mjs`, `scripts/answer_with_openrouter.mjs`에서 Cohere `rerank-v3.5` 사용 |
-| RAG 방식 | 벡터 검색 + 키워드 검색 후보를 병합한 뒤 rerank하는 Hybrid RAG |
-| GitHub 제출 | 이 저장소에 산출물과 실행 방법을 포함 |
+| 문서 | `dapa-rag-assignment/docs/dapa_public_sample_official_document.md`에 10장 이내 공문서 형식 샘플 작성 |
+| 기관 양식 참고 | DAPA 공개 홈페이지의 조직도, 직원/담당업무, 공지사항, 민원업무 안내 링크를 문서와 메타데이터에 반영 |
+| 청킹 | 제목 구조 보존 후 450~700자 단위 recursive character chunking, 약 100자 overlap 적용 |
+| Vector DB | Supabase pgvector 테이블 `dapa_rag_assignment_chunks`와 검색 RPC 구성 |
+| Chat Model | OpenRouter Chat Completions API 연동, 기본 모델 `google/gemini-2.5-flash` |
+| Re-rank | Cohere `rerank-v3.5` 연동 |
+| RAG 방식 | 벡터 검색 + 키워드 검색 + Cohere rerank + OpenRouter 답변 생성의 Hybrid RAG |
+| 배포 | GitHub Pages 정적 웹 서비스로 문서 검색·답변 UI 제공 |
 
-## 2. 공개 자료 출처
+## 웹 서비스 사용 방법
 
-- 방위사업청 대표 홈페이지: https://www.dapa.go.kr/
-- 조직도: https://www.dapa.go.kr/dapa/index.do?menuSeq=3137
-- 직원 및 담당업무 검색: https://www.dapa.go.kr/dapa/emp/empSearch/empSearchView.do?menuSeq=3138
-- 공지사항: https://www.dapa.go.kr/dapa/index.do?menuSeq=3031
-- 민원업무 안내: https://www.dapa.go.kr/dapa/index.do?menuSeq=3056
+1. https://ai-studying-man.github.io/rag_ax/ 접속
+2. 질문 입력
+3. Cohere API Key와 OpenRouter API Key 입력
+4. `검색 후 답변 생성` 실행
+5. Supabase 검색 후보, Cohere 재정렬 근거, OpenRouter 답변과 토큰 사용량 확인
 
-## 3. 폴더 구조
+API 키는 브라우저 메모리에서만 사용하며 저장하지 않습니다. Supabase는 공개 샘플 문서에 한정된 read-only 정책과 publishable key로 조회합니다.
+
+## RAG 처리 흐름
+
+```mermaid
+flowchart LR
+  A["사용자 질문"] --> B["Cohere embed-multilingual-v3.0"]
+  B --> C["Supabase pgvector RPC"]
+  A --> D["Supabase keyword RPC"]
+  C --> E["후보 병합"]
+  D --> E
+  E --> F["Cohere rerank-v3.5"]
+  F --> G["OpenRouter google/gemini-2.5-flash"]
+  G --> H["근거 포함 답변"]
+```
+
+## 주요 파일
 
 ```text
+index.html
+styles.css
+app.js
+supabase_public_access.sql
 dapa-rag-assignment/
-  docs/
-    dapa_public_sample_official_document.md
-  data/
-    dapa_public_sample_chunks.json
-    dapa_public_sample_embedded_chunks.json
-  scripts/
-    prepare_chunks.mjs
-    embed_and_upload.mjs
-    test_retrieval.mjs
-    answer_with_openrouter.mjs
-  supabase/
-    schema.sql
-  .env.example
+  docs/dapa_public_sample_official_document.md
+  data/dapa_public_sample_chunks.json
+  data/dapa_public_sample_embedded_chunks.json
+  scripts/prepare_chunks.mjs
+  scripts/embed_and_upload.mjs
+  scripts/test_retrieval.mjs
+  scripts/answer_with_openrouter.mjs
+  supabase/schema.sql
+  results/openrouter_answer_evidence.md
 ```
 
-## 4. 청킹 설계
+## Supabase 구성
 
-문서가 짧고 공문서형 제목 구조가 명확하므로 고정 길이만 사용하는 방식보다 절 제목을 보존하는 방식이 적합합니다.
+DB 객체명은 과제 요구사항에 맞춰 충돌 가능성을 줄이기 위해 `dapa_rag_assignment_` prefix를 사용했습니다.
 
-적용 방식:
-
-- `##` 제목 기준으로 1차 분할
-- 긴 절은 700자 이하로 recursive character splitting
-- 인접 청크에는 약 100자 overlap 부여
-- 각 청크에 `document_id`, `chunk_id`, `section_path`, `source_url`, `token_estimate`, `metadata` 저장
-
-현재 생성 결과:
-
-- 청크 수: 11개
-- 임베딩 차원: 1024
+- 테이블: `public.dapa_rag_assignment_chunks`
+- 벡터 검색 RPC: `public.dapa_rag_assignment_match_chunks`
+- 키워드 검색 RPC: `public.dapa_rag_assignment_keyword_chunks`
+- 적재 청크 수: 11개
 - 임베딩 모델: Cohere `embed-multilingual-v3.0`
+- 임베딩 차원: 1024
 
-## 5. Supabase 적재 절차
+GitHub Pages에서 read-only 검색이 가능하도록 적용한 공개 정책은 `supabase_public_access.sql`에 정리했습니다.
 
-Supabase REST API와 service-role key는 기존 테이블에 insert/update는 가능하지만, 새 테이블과 RPC 함수를 만드는 DDL은 직접 실행할 수 없습니다. 먼저 Supabase Dashboard의 SQL Editor에서 아래 파일을 실행해야 합니다.
-
-```text
-dapa-rag-assignment/supabase/schema.sql
-```
-
-그 뒤 로컬 환경 변수 설정 후 업로드합니다.
-
-```powershell
-$env:SUPABASE_URL="https://txrcelgqvarqjcsjkgee.supabase.co"
-$env:SUPABASE_SERVICE_ROLE_KEY="..."
-$env:COHERE_API_KEY="..."
-node dapa-rag-assignment/scripts/embed_and_upload.mjs
-```
-
-실제 실행에서는 Supabase SQL Editor에서 `schema.sql`을 실행했고, `dapa_public_sample_embedded_chunks.json`의 11개 청크를 `public.dapa_rag_assignment_chunks`에 적재했습니다.
-
-## 6. Hybrid RAG 질의 흐름
-
-1. 질문을 Cohere `embed-multilingual-v3.0`의 `search_query` 타입으로 임베딩
-2. `dapa_rag_assignment_match_chunks` RPC로 벡터 후보 검색
-3. `dapa_rag_assignment_keyword_chunks` RPC로 키워드 후보 검색
-4. 후보를 chunk id 기준으로 병합
-5. Cohere `rerank-v3.5`로 상위 근거 재정렬
-6. OpenRouter `google/gemini-2.5-flash`로 근거 기반 답변 생성
-
-검색 테스트:
-
-```powershell
-$env:SUPABASE_URL="https://txrcelgqvarqjcsjkgee.supabase.co"
-$env:SUPABASE_SERVICE_ROLE_KEY="..."
-$env:COHERE_API_KEY="..."
-node dapa-rag-assignment/scripts/test_retrieval.mjs "방위사업청 공지사항은 어떤 정보를 제공하나요?"
-```
-
-답변 생성:
-
-```powershell
-$env:OPENROUTER_API_KEY="..."
-node dapa-rag-assignment/scripts/answer_with_openrouter.mjs "민원업무는 어떤 절차로 처리되나요?"
-```
-
-실제 OpenRouter 호출 증빙:
-
-- 증빙 파일: `dapa-rag-assignment/results/openrouter_answer_evidence.md`
-- 원본 JSON: `dapa-rag-assignment/results/openrouter_answer_evidence.json`
-- 실행 모델: `google/gemini-2.5-flash`
-- 질문: `방위사업청 공지사항은 어떤 정보를 제공하나요?`
-- OpenRouter usage: `prompt_tokens=1008`, `completion_tokens=134`, `total_tokens=1142`, `cost=0.0006374`
-
-## 7. 검증 결과
-
-실행한 검증:
-
-```powershell
-node dapa-rag-assignment/scripts/prepare_chunks.mjs
-node --check dapa-rag-assignment/scripts/prepare_chunks.mjs
-node --check dapa-rag-assignment/scripts/embed_and_upload.mjs
-node --check dapa-rag-assignment/scripts/test_retrieval.mjs
-node --check dapa-rag-assignment/scripts/answer_with_openrouter.mjs
-```
-
-확인된 결과:
+## 검증 결과
 
 - 샘플 공문서 생성 완료
 - 11개 청크 생성 완료
-- Cohere 임베딩 생성 완료
-- 1024차원 임베딩 파일 생성 완료
-- Supabase 스키마 생성 완료
-- Supabase 청크 11개 적재 완료
-- Hybrid RAG 검색 후보 11개 반환 확인
-- Cohere rerank 상위 결과가 `6. 공지사항 운영 방식` 청크를 1순위로 반환
-- OpenRouter Chat Model 실제 호출 완료
-- OpenRouter usage 기록 완료: `total_tokens=1142`, `cost=0.0006374`
+- Cohere 임베딩 생성 및 Supabase 적재 완료
+- Supabase vector RPC와 keyword RPC 검색 확인
+- Cohere rerank 호출 확인
+- OpenRouter Chat Model 실제 호출 확인
+- OpenRouter usage 기록: `prompt_tokens=1008`, `completion_tokens=134`, `total_tokens=1142`, `cost=0.0006374`
+- GitHub Pages 정적 서비스 구성
 
-## 8. 보안 유의사항
+OpenRouter 호출 증빙은 `dapa-rag-assignment/results/openrouter_answer_evidence.md`와 원본 JSON 파일에 저장했습니다.
 
-- 실제 방위사업청 내부 문서 양식이나 비공개 자료는 사용하지 않았습니다.
-- API key는 저장소에 커밋하지 않습니다.
-- `.env.example`에는 placeholder만 포함합니다.
-- 채팅 또는 터미널에 노출된 API key는 공개 GitHub 제출 전 회전하는 것이 안전합니다.
+## 보안 기준
+
+- 방위사업청 내부 문서, 비공개 문서 양식, 민감정보는 사용하지 않았습니다.
+- Supabase service role key는 클라이언트에 포함하지 않았습니다.
+- Cohere/OpenRouter 키는 사용자가 화면에 직접 입력하며 저장하지 않습니다.
+- 공개 웹서비스는 `metadata.security_level = public_sample` 청크만 조회하도록 Supabase RLS 정책을 적용했습니다.
+
+## 로컬 실행
+
+정적 파일이므로 별도 빌드 없이 실행할 수 있습니다.
+
+```powershell
+python -m http.server 8080
+```
+
+브라우저에서 `http://localhost:8080`을 열면 GitHub Pages와 같은 방식으로 동작합니다.

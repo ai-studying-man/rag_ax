@@ -36,19 +36,32 @@ function requireValue(input, label) {
   return value;
 }
 
-async function postJson(url, headers, body) {
+async function postJson(url, headers, body, options = {}) {
+  const timeoutMs = options.timeoutMs ?? 90000;
+  const label = options.label ?? "API";
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...headers },
-    body: JSON.stringify(body),
-    signal: controller.signal
-  }).finally(() => clearTimeout(timeout));
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`${label} 요청이 ${Math.round(timeoutMs / 1000)}초 안에 끝나지 않았습니다. 잠시 후 다시 시도하거나 API 키의 사용량 제한을 확인해 주세요.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`${response.status} ${text}`);
+    throw new Error(`${label} 오류 (${response.status}): ${text}`);
   }
   return response.json();
 }
@@ -63,7 +76,8 @@ async function embedQuery(query, cohereKey) {
       input_type: "search_query",
       embedding_types: ["float"],
       truncate: "END"
-    }
+    },
+    { label: "Cohere 임베딩", timeoutMs: 120000 }
   );
   return (payload.embeddings?.float ?? payload.embeddings)[0];
 }
@@ -75,7 +89,8 @@ async function supabaseRpc(name, body) {
       apikey: SUPABASE_KEY,
       Authorization: `Bearer ${SUPABASE_KEY}`
     },
-    body
+    body,
+    { label: `Supabase ${name}`, timeoutMs: 60000 }
   );
 }
 
@@ -89,7 +104,8 @@ async function rerank(query, rows, cohereKey) {
       query,
       documents,
       top_n: Math.min(5, documents.length)
-    }
+    },
+    { label: "Cohere 리랭크", timeoutMs: 90000 }
   );
   return payload.results.map((result) => ({
     score: result.relevance_score,
@@ -126,7 +142,8 @@ async function answer(query, rankedRows, openrouterKey) {
           content: `질문: ${query}\n\n근거:\n${context}`
         }
       ]
-    }
+    },
+    { label: "OpenRouter 답변 생성", timeoutMs: 120000 }
   );
 }
 
@@ -175,12 +192,14 @@ async function runRag() {
     const cohereKey = requireValue(els.cohereKey, "Cohere API Key");
     const openrouterKey = requireValue(els.openrouterKey, "OpenRouter API Key");
     setBusy(true);
-    setStatus("검색 중");
+    setStatus("임베딩 중");
     els.answer.className = "answer";
-    els.answer.textContent = "Supabase에서 후보 문서를 검색하고 있습니다.";
+    els.answer.textContent = "Cohere에서 질문 임베딩을 생성하고 있습니다.";
     els.usage.textContent = "";
 
     const queryEmbedding = await embedQuery(query, cohereKey);
+    setStatus("검색 중");
+    els.answer.textContent = "Supabase에서 후보 문서를 검색하고 있습니다.";
     const vectorRows = await supabaseRpc("dapa_rag_assignment_match_chunks", {
       query_embedding: queryEmbedding,
       match_count: 12,
@@ -194,6 +213,7 @@ async function runRag() {
     els.candidateCount.textContent = String(merged.length);
 
     setStatus("재정렬 중");
+    els.answer.textContent = "Cohere rerank로 검색 근거를 재정렬하고 있습니다.";
     const ranked = await rerank(query, merged, cohereKey);
     els.rerankCount.textContent = String(ranked.length);
     renderEvidence(ranked);
@@ -209,10 +229,24 @@ async function runRag() {
   } catch (error) {
     setStatus("오류", "error");
     els.answer.className = "answer error";
-    els.answer.textContent = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    els.answer.textContent = formatError(error);
   } finally {
     setBusy(false);
   }
+}
+
+function formatError(error) {
+  if (!(error instanceof Error)) return "알 수 없는 오류가 발생했습니다.";
+  if (error.name === "AbortError" || error.message.includes("aborted")) {
+    return "요청 시간이 초과되었습니다. Cohere 또는 OpenRouter 응답이 지연된 상태입니다. 잠시 후 다시 실행해 주세요.";
+  }
+  if (error.message.includes("401")) {
+    return `${error.message}\n\n입력한 Cohere/OpenRouter API 키가 올바른지 확인해 주세요.`;
+  }
+  if (error.message.includes("429")) {
+    return `${error.message}\n\nAPI 사용량 제한 또는 크레딧 한도에 걸렸을 수 있습니다.`;
+  }
+  return error.message;
 }
 
 els.askButton.addEventListener("click", () => {

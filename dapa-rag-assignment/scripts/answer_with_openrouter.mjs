@@ -6,6 +6,7 @@ const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const EMBED_MODEL = "embed-multilingual-v3.0";
 const RERANK_MODEL = "rerank-v3.5";
 const CHAT_MODEL = process.env.OPENROUTER_MODEL?.trim() || "google/gemini-2.5-flash";
+const REQUEST_TIMEOUT_MS = 30000;
 
 function requireEnv(name) {
   const value = process.env[name]?.trim();
@@ -14,11 +15,14 @@ function requireEnv(name) {
 }
 
 async function postJson(url, headers, body) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
-  });
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeout));
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`${url} failed: ${response.status} ${text}`);
@@ -92,7 +96,10 @@ async function answer(query, rows, openrouterKey) {
       ],
     },
   );
-  return payload.choices?.[0]?.message?.content ?? "";
+  return {
+    content: payload.choices?.[0]?.message?.content ?? "",
+    usage: payload.usage ?? null,
+  };
 }
 
 async function main() {
@@ -112,7 +119,24 @@ async function main() {
   const merged = [...new Map([...vectorRows, ...keywordRows].map((row) => [row.id, row])).values()];
   const ranked = await rerank(query, merged, cohereKey);
   const response = await answer(query, ranked, openrouterKey);
-  console.log(response);
+  const evidence = {
+    query,
+    chat_model: CHAT_MODEL,
+    rerank_model: RERANK_MODEL,
+    retrieved_candidates: merged.length,
+    reranked_sections: ranked.map((row) => ({
+      chunk_id: row.chunk_id,
+      section_path: row.section_path,
+      source_url: row.source_url,
+    })),
+    answer: response.content,
+    usage: response.usage,
+  };
+  if (process.env.OPENROUTER_EVIDENCE_PATH?.trim()) {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(process.env.OPENROUTER_EVIDENCE_PATH.trim(), `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+  }
+  console.log(response.content);
 }
 
 main().catch((error) => {

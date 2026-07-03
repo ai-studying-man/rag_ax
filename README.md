@@ -105,6 +105,14 @@ $env:OPENROUTER_API_KEY="..."
 node dapa-rag-assignment/scripts/answer_with_openrouter.mjs "민원업무는 어떤 절차로 처리되나요?"
 ```
 
+실제 OpenRouter 호출 증빙:
+
+- 증빙 파일: `dapa-rag-assignment/results/openrouter_answer_evidence.md`
+- 원본 JSON: `dapa-rag-assignment/results/openrouter_answer_evidence.json`
+- 실행 모델: `google/gemini-2.5-flash`
+- 질문: `방위사업청 공지사항은 어떤 정보를 제공하나요?`
+- OpenRouter usage: `prompt_tokens=1008`, `completion_tokens=134`, `total_tokens=1142`, `cost=0.0006374`
+
 ## 7. 검증 결과
 
 실행한 검증:
@@ -127,6 +135,8 @@ node --check dapa-rag-assignment/scripts/answer_with_openrouter.mjs
 - Supabase 청크 11개 적재 완료
 - Hybrid RAG 검색 후보 11개 반환 확인
 - Cohere rerank 상위 결과가 `6. 공지사항 운영 방식` 청크를 1순위로 반환
+- OpenRouter Chat Model 실제 호출 완료
+- OpenRouter usage 기록 완료: `total_tokens=1142`, `cost=0.0006374`
 
 ## 8. 보안 유의사항
 

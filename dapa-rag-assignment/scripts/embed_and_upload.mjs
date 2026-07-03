@@ -55,7 +55,7 @@ async function uploadRows(rows, supabaseUrl, supabaseKey) {
       apikey: supabaseKey,
       Authorization: `Bearer ${supabaseKey}`,
       "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=representation",
+      Prefer: "resolution=merge-duplicates,return=minimal",
     },
     body: JSON.stringify(rows),
   });
@@ -65,7 +65,7 @@ async function uploadRows(rows, supabaseUrl, supabaseKey) {
     throw new Error(`Supabase upload failed: ${response.status} ${body}`);
   }
 
-  return response.json();
+  return rows.length;
 }
 
 async function main() {
@@ -99,7 +99,7 @@ async function main() {
   }));
 
   const uploaded = await uploadRows(rows, supabaseUrl, supabaseKey);
-  console.log(`uploaded_rows=${uploaded.length}`);
+  console.log(`uploaded_rows=${uploaded}`);
   console.log(`embedded_output=${EMBEDDED_PATH}`);
 }
 

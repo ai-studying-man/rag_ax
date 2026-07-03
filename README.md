@@ -78,13 +78,7 @@ $env:COHERE_API_KEY="..."
 node dapa-rag-assignment/scripts/embed_and_upload.mjs
 ```
 
-이번 실행에서는 Cohere 임베딩 생성까지 성공했고, Supabase는 테이블이 아직 없어 다음 오류가 확인되었습니다.
-
-```text
-PGRST205: Could not find the table 'public.dapa_rag_assignment_chunks' in the schema cache
-```
-
-따라서 `schema.sql` 실행 후 같은 업로드 명령을 재실행하면 `dapa_public_sample_embedded_chunks.json`의 11개 청크가 적재됩니다.
+실제 실행에서는 Supabase SQL Editor에서 `schema.sql`을 실행했고, `dapa_public_sample_embedded_chunks.json`의 11개 청크를 `public.dapa_rag_assignment_chunks`에 적재했습니다.
 
 ## 6. Hybrid RAG 질의 흐름
 
@@ -129,7 +123,10 @@ node --check dapa-rag-assignment/scripts/answer_with_openrouter.mjs
 - 11개 청크 생성 완료
 - Cohere 임베딩 생성 완료
 - 1024차원 임베딩 파일 생성 완료
-- Supabase 업로드는 DB 스키마 미생성으로 대기
+- Supabase 스키마 생성 완료
+- Supabase 청크 11개 적재 완료
+- Hybrid RAG 검색 후보 11개 반환 확인
+- Cohere rerank 상위 결과가 `6. 공지사항 운영 방식` 청크를 1순위로 반환
 
 ## 8. 보안 유의사항
 
